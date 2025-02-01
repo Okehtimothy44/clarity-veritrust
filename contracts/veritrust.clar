@@ -19,9 +19,28 @@
     }
 )
 
+;; New ownership history tracking
+(define-map ownership-history
+    { product-id: (string-ascii 64) }
+    { history: (list 50 { owner: principal, timestamp: uint }) }
+)
+
 ;; Private functions
 (define-private (is-manufacturer (address principal))
     (default-to false (map-get? manufacturers address))
+)
+
+(define-private (add-to-history (product-id (string-ascii 64)) (new-owner principal))
+    (let (
+        (current-history (unwrap! (map-get? ownership-history { product-id: product-id }) 
+            (tuple (history (list)))))
+        (new-entry (tuple (owner new-owner) (timestamp block-height)))
+    )
+    (map-set ownership-history
+        { product-id: product-id }
+        { history: (unwrap! (as-max-len? (append (get history current-history) new-entry) u50) 
+            (get history current-history)) }
+    ))
 )
 
 ;; Public functions
@@ -38,6 +57,10 @@
     )
     (asserts! (is-manufacturer tx-sender) err-unauthorized)
     (asserts! (is-none exists) err-already-registered)
+    (map-set ownership-history 
+        { product-id: product-id }
+        { history: (list (tuple (owner tx-sender) (timestamp block-height))) }
+    )
     (ok (map-set products
         { product-id: product-id }
         {
@@ -55,6 +78,7 @@
         (product (unwrap! (map-get? products { product-id: product-id }) err-not-found))
     )
     (asserts! (is-eq (get current-owner product) tx-sender) err-unauthorized)
+    (add-to-history product-id new-owner)
     (ok (map-set products
         { product-id: product-id }
         (merge product { current-owner: new-owner })
@@ -81,4 +105,11 @@
         }
         (map-get? products { product-id: product-id })
     )))
+)
+
+(define-read-only (get-ownership-history (product-id (string-ascii 64)))
+    (ok (default-to 
+        { history: (list) }
+        (map-get? ownership-history { product-id: product-id })
+    ))
 )
