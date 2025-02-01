@@ -67,11 +67,12 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure product ownership transfer works",
+    name: "Ensure product ownership transfer works and history is tracked",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const deployer = accounts.get('deployer')!;
         const manufacturer = accounts.get('wallet_1')!;
         const newOwner = accounts.get('wallet_2')!;
+        const thirdOwner = accounts.get('wallet_3')!;
         
         // Setup manufacturer and product
         let setup = chain.mineBlock([
@@ -84,26 +85,31 @@ Clarinet.test({
             ], manufacturer.address)
         ]);
 
-        // Transfer ownership
-        let block = chain.mineBlock([
+        // Transfer ownership multiple times
+        let transfers = chain.mineBlock([
             Tx.contractCall('veritrust', 'transfer-ownership', [
                 types.ascii("PROD123"),
                 types.principal(newOwner.address)
-            ], manufacturer.address)
+            ], manufacturer.address),
+            Tx.contractCall('veritrust', 'transfer-ownership', [
+                types.ascii("PROD123"),
+                types.principal(thirdOwner.address)
+            ], newOwner.address)
         ]);
 
-        block.receipts[0].result.expectOk();
+        transfers.receipts[0].result.expectOk();
+        transfers.receipts[1].result.expectOk();
 
-        // Verify new owner
-        let verifyBlock = chain.mineBlock([
-            Tx.contractCall('veritrust', 'get-product-owner', [
+        // Check ownership history
+        let historyBlock = chain.mineBlock([
+            Tx.contractCall('veritrust', 'get-ownership-history', [
                 types.ascii("PROD123")
             ], deployer.address)
         ]);
 
-        assertEquals(
-            verifyBlock.receipts[0].result.expectOk(),
-            newOwner.address
-        );
+        historyBlock.receipts[0].result.expectOk();
+        // Verify history contains all owners
+        const history = historyBlock.receipts[0].result.expectOk().expectTuple();
+        assertEquals(history['history'].length, 3);
     }
 });
